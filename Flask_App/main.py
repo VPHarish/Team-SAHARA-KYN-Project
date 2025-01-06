@@ -9,6 +9,8 @@ import pytesseract
 import nltk
 nltk.download('punkt')
 nltk.download('stopwords')
+nltk.download('punkt_tab')
+
 
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
@@ -16,6 +18,30 @@ from nltk.stem import PorterStemmer
 import re
 import cv2
 import pytesseract
+
+
+import os
+import tensorflow as tf
+import warnings
+
+warnings.filterwarnings("ignore")
+
+import json
+from flask_cors import CORS
+
+
+from PIL import Image
+import requests
+
+from io import BytesIO
+
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+app = Flask(__name__)
+cors = CORS(app)
+
+global MODEL
+global CLASSES
 
 
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -124,14 +150,26 @@ def classify_text(text):
 
 
 def classify_image(image):
+    try:
+        image = Image.open(image)
+        image = image.resize((128, 128))
+        image = np.array(image)
+        image = image.astype("float") / 255.0
+        image = np.expand_dims(image, axis=0)
+        pred = MODEL.predict(image)
+        ans =  {"class": CLASSES[int(np.argmax(pred, axis=1))]}
+    except:
+        ans =  {"Uh oh": "We are down"}
 
-    image2 = image.read()
-    gray = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    text = pytesseract.image_to_string(thresh)
-    detected_text = text if text else 'No text detected'
-
-    return classify_text(detected_text)
+    response = {
+        "text": "Image",
+        "predicted_class": ans.get("class", "Unknown") if ans.get("class", "Unknown")!="Unknown" else "Pass",
+        "probabilities": {
+            "appropriate": 0.0 if ans.get("class", "Unknown")!="Unknown" else 1.0,
+            "inappropriate": 0.0 if ans.get("class", "Unknown")=="Unknown" else 1.0
+        }
+    }
+    return response
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -153,4 +191,7 @@ def index():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    MODEL_PATH = os.path.abspath("./Image_Moderator/models/image/dump/mobile_net.h5")
+    MODEL = tf.keras.models.load_model(MODEL_PATH)
+    CLASSES = ["control", "gore", "pornography"]
+    app.run(threaded=True, debug=True)
